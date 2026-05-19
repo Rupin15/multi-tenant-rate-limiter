@@ -9,7 +9,6 @@ import org.springframework.web.server.ServerWebExchange;
 public class RateLimitPolicyResolver {
 
     public RateLimitPolicy resolve(ServerWebExchange exchange) {
-
         Route route =exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
         if (route == null) {
             return RateLimitPolicy.ORDERS;

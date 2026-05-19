@@ -24,19 +24,11 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RateLimitFilter implements GlobalFilter, Ordered {
 
-    private static final Set<String> EXCLUDED_PATHS = Set.of(
-            "/actuator/prometheus",
-            "/actuator/health"
-    );
 
     private final IpBasedTokenBucket ipBuckets;
-
     private final LuaRateLimiterService luaRateLimiter;
-
     private final RedisHealthState redisHealthState;
-
     private final RateLimiterMetrics metrics;
-
     private final RateLimitPolicyResolver policyResolver;
 
     @Override
@@ -45,34 +37,13 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
             GatewayFilterChain chain
     ) {
 
-        String requestPath =
-                exchange.getRequest()
-                        .getURI()
-                        .getPath();
-
-        if (EXCLUDED_PATHS.contains(requestPath)) {
-
-            metrics.recordDecision(
-                    "none",
-                    "skipped"
-            );
-
-            return chain.filter(exchange);
-        }
-
-        String clientIp =
-                extractClientIp(exchange.getRequest());
-
-        RateLimitPolicy policy =
-                policyResolver.resolve(exchange);
+        String clientIp =extractClientIp(exchange.getRequest());
+        RateLimitPolicy policy =policyResolver.resolve(exchange);
 
         return applyRateLimit(clientIp, policy)
                 .flatMap(decision -> {
 
-                    metrics.recordDecision(
-                            decision.backend(),
-                            decision.outcome()
-                    );
+                    metrics.recordDecision(decision.backend(),decision.outcome());
 
                     if (decision.blocked()) {
 
@@ -89,37 +60,16 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    private Mono<RateLimitDecision> applyRateLimit(
-            String clientIp,
-            RateLimitPolicy policy
-    ) {
-
-        TokenBucket localBucket =
-                ipBuckets.getBucket(
-                        clientIp,
-                        policy
-                );
-
-        boolean localAllowed =
-                localBucket.tryConsume();
-
+    private Mono<RateLimitDecision> applyRateLimit( String clientIp, RateLimitPolicy policy) {
+        TokenBucket localBucket = ipBuckets.getBucket(clientIp,policy);
+        boolean localAllowed =localBucket.tryConsume();
         if (localAllowed) {
             return allow("local");
         }
-
-        return requestRedisLease(
-                clientIp,
-                policy,
-                localBucket
-        );
+        return requestRedisLease(clientIp,policy,localBucket);
     }
 
-    private Mono<RateLimitDecision> requestRedisLease(
-            String clientIp,
-            RateLimitPolicy policy,
-            TokenBucket localBucket
-    ) {
-
+    private Mono<RateLimitDecision> requestRedisLease( String clientIp,RateLimitPolicy policy,TokenBucket localBucket) {
         if (!redisHealthState.isRedisHealthy()) {
             metrics.recordRedisFallback();
             return reject("redis_unavailable");
@@ -129,16 +79,8 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 .requestLease(clientIp, policy)
                 .map(localBucket::addTokensAndConsume)
                 .map(redisAllowed ->
-                        redisAllowed
-                                ? new RateLimitDecision(
-                                false,
-                                "redis",
-                                "allowed"
-                        )
-                                : new RateLimitDecision(
-                                true,
-                                "redis",
-                                "rejected"
+                        redisAllowed? new RateLimitDecision(false,"redis","allowed")
+                                : new RateLimitDecision(true,"redis","rejected"
                         )
                 )
                 .onErrorResume(error -> {
@@ -148,69 +90,28 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    private Mono<RateLimitDecision> allow(
-            String backend
-    ) {
+    private Mono<RateLimitDecision> allow(String backend) {
+        return Mono.just(new RateLimitDecision(false,backend,"allowed"));
+    }
 
-        return Mono.just(
-                new RateLimitDecision(
-                        false,
-                        backend,
-                        "allowed"
-                )
+    private Mono<RateLimitDecision> reject( String backend) {
+        return Mono.just(new RateLimitDecision(true,backend,"rejected")
         );
     }
 
-    private Mono<RateLimitDecision> reject(
-            String backend
-    ) {
-
-        return Mono.just(
-                new RateLimitDecision(
-                        true,
-                        backend,
-                        "rejected"
-                )
-        );
-    }
-
-    private String extractClientIp(
-            ServerHttpRequest request
-    ) {
-
-        String forwardedFor =
-                request.getHeaders()
-                        .getFirst("X-Forwarded-For");
-
-        if (forwardedFor != null &&
-                !forwardedFor.isBlank()) {
-
-            return forwardedFor
-                    .split(",")[0]
-                    .trim();
+    private String extractClientIp( ServerHttpRequest request) {
+        String forwardedFor =request.getHeaders() .getFirst("X-Forwarded-For");
+        if (forwardedFor != null &&!forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
         }
-
-        String realIp =
-                request.getHeaders()
-                        .getFirst("X-Real-IP");
-
-        if (realIp != null &&
-                !realIp.isBlank()) {
-
+        String realIp =request.getHeaders().getFirst("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
             return realIp.trim();
         }
-
-        InetSocketAddress remoteAddress =
-                request.getRemoteAddress();
-
-        if (remoteAddress != null &&
-                remoteAddress.getAddress() != null) {
-
-            return remoteAddress
-                    .getAddress()
-                    .getHostAddress();
+        InetSocketAddress remoteAddress = request.getRemoteAddress();
+        if (remoteAddress != null &&remoteAddress.getAddress() != null) {
+            return remoteAddress .getAddress().getHostAddress();
         }
-
         return "unknown";
     }
 
@@ -219,10 +120,5 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
         return Ordered.HIGHEST_PRECEDENCE;
     }
 
-    private record RateLimitDecision(
-            boolean blocked,
-            String backend,
-            String outcome
-    ) {
-    }
+    private record RateLimitDecision( boolean blocked,String backend,String outcome) { }
 }

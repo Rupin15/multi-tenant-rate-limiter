@@ -14,20 +14,10 @@ public class TokenBucket {
 
     private final MeterRegistry meterRegistry;
 
-    public TokenBucket(
-            long maxTokens,
-            MeterRegistry meterRegistry
-    ) {
-
+    public TokenBucket( long maxTokens,MeterRegistry meterRegistry) {
         this.maxTokens = maxTokens;
         this.meterRegistry = meterRegistry;
-
-        this.state = new AtomicReference<>(
-                new BucketState(
-                        0D,
-                        System.nanoTime()
-                )
-        );
+        this.state = new AtomicReference<>(new BucketState(0D, System.nanoTime()));
     }
 
     public long getLastUpdatedTimestamp() {
