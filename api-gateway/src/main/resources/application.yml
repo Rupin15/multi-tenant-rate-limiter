@@ -8,14 +8,14 @@ spring:
         webflux:
           routes:
             - id: payment-gateway
-              uri: http://localhost:8081
+              uri: ${SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_0_URI:http://localhost:8081}
               predicates:
                 - Path=/api/payments/**
               filters:
                 - StripPrefix=2
                 - PrefixPath=/v1/payments
             - id: order-gateway
-              uri: http://localhost:8082
+              uri: ${SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_1_URI:http://localhost:8082}
               predicates:
                 - Path=/api/orders/**
               filters:

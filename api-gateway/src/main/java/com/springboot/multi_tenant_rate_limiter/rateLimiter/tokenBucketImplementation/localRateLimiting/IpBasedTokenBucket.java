@@ -35,7 +35,7 @@ public class IpBasedTokenBucket {
         return buckets.computeIfAbsent(
                 key,
                 ignored -> new TokenBucket(
-                        policy.getLeaseSize(),
+                        policy.leaseSize(),
                         null
                 )
         );

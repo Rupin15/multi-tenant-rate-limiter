@@ -31,9 +31,9 @@ public class LuaRateLimiterService {
                         + ip;
 
         List<Long> arguments = List.of(
-                policy.getMaxTokens(),
-                policy.getRefillTokensPerSecond(),
-                policy.getLeaseSize(),
+                policy.maxTokens(),
+                policy.refillTokensPerSecond(),
+                policy.leaseSize(),
                 properties.getTtlSeconds()
         );
 

@@ -48,35 +48,35 @@ services:
     networks:
       - rate-limiter
 
-  api-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        MODULE: api-gateway
-    container_name: rate-limiter-api-gateway
-    ports:
-      - "8084:8080"
-      - "9091:9091"
-    environment:
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_0_URI: http://payment-service:8081
-      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_1_URI: http://order-service:8082
-    depends_on:
-      redis:
-        condition: service_healthy
-      payment-service:
-        condition: service_healthy
-      order-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-    networks:
-      - rate-limiter
+#  api-gateway:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#      args:
+#        MODULE: api-gateway
+#    container_name: rate-limiter-api-gateway
+#    ports:
+#      - "8084:8080"
+#      - "9091:9091"
+#    environment:
+#      SPRING_DATA_REDIS_HOST: redis
+#      SPRING_DATA_REDIS_PORT: 6379
+#      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_0_URI: http://payment-service:8081
+#      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_1_URI: http://order-service:8082
+#    depends_on:
+#      redis:
+#        condition: service_healthy
+#      payment-service:
+#        condition: service_healthy
+#      order-service:
+#        condition: service_healthy
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health || exit 1"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 12
+#    networks:
+#      - rate-limiter
 
   prometheus:
     image: prom/prometheus:latest
@@ -85,9 +85,9 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    depends_on:
-      api-gateway:
-        condition: service_healthy
+#    depends_on:
+#      api-gateway:
+#        condition: service_healthy
     networks:
       - rate-limiter
 

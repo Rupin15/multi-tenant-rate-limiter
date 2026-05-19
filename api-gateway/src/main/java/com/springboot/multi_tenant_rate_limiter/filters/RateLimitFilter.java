@@ -42,16 +42,9 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
         return applyRateLimit(clientIp, policy)
                 .flatMap(decision -> {
-
                     metrics.recordDecision(decision.backend(),decision.outcome());
-
                     if (decision.blocked()) {
-
-                        exchange.getResponse()
-                                .setStatusCode(
-                                        HttpStatus.TOO_MANY_REQUESTS
-                                );
-
+                        exchange.getResponse().setStatusCode( HttpStatus.TOO_MANY_REQUESTS);
                         return exchange.getResponse()
                                 .setComplete();
                     }
