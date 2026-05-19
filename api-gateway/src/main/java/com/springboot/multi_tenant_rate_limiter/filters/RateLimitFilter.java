@@ -5,6 +5,8 @@ import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplement
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.localRateLimiting.TokenBucket;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting.LuaRateLimiterService;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting.RedisHealthState;
+import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.RateLimitPolicy;
+import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.RateLimitPolicyResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -28,9 +30,14 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     );
 
     private final IpBasedTokenBucket ipBuckets;
+
     private final LuaRateLimiterService luaRateLimiter;
+
     private final RedisHealthState redisHealthState;
+
     private final RateLimiterMetrics metrics;
+
+    private final RateLimitPolicyResolver policyResolver;
 
     @Override
     public Mono<Void> filter(
@@ -38,51 +45,78 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
             GatewayFilterChain chain
     ) {
 
-        String requestPath = exchange.getRequest().getURI().getPath();
+        String requestPath =
+                exchange.getRequest()
+                        .getURI()
+                        .getPath();
 
         if (EXCLUDED_PATHS.contains(requestPath)) {
-            metrics.recordDecision("none", "skipped");
+
+            metrics.recordDecision(
+                    "none",
+                    "skipped"
+            );
+
             return chain.filter(exchange);
         }
 
-        String clientIp =extractClientIp(exchange.getRequest());
+        String clientIp =
+                extractClientIp(exchange.getRequest());
 
-        return applyRateLimit(clientIp)
+        RateLimitPolicy policy =
+                policyResolver.resolve(exchange);
+
+        return applyRateLimit(clientIp, policy)
                 .flatMap(decision -> {
 
-                    metrics.recordDecision(decision.backend(), decision.outcome());
+                    metrics.recordDecision(
+                            decision.backend(),
+                            decision.outcome()
+                    );
 
                     if (decision.blocked()) {
-                        exchange.getResponse()
-                                .setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
 
-                        return exchange.getResponse().setComplete();
+                        exchange.getResponse()
+                                .setStatusCode(
+                                        HttpStatus.TOO_MANY_REQUESTS
+                                );
+
+                        return exchange.getResponse()
+                                .setComplete();
                     }
 
                     return chain.filter(exchange);
                 });
     }
 
-    private Mono<RateLimitDecision> applyRateLimit(String clientIp) {
+    private Mono<RateLimitDecision> applyRateLimit(
+            String clientIp,
+            RateLimitPolicy policy
+    ) {
 
-        TokenBucket localBucket = ipBuckets.getBucket(clientIp);
+        TokenBucket localBucket =
+                ipBuckets.getBucket(
+                        clientIp,
+                        policy
+                );
 
-        return localBucket.allowRequest()
-                .flatMap(localAllowed -> {
+        boolean localAllowed =
+                localBucket.tryConsume();
 
-                    if (localAllowed) {
-                        return allow("local");
-                    }
+        if (localAllowed) {
+            return allow("local");
+        }
 
-                    return requestRedisLease(
-                            clientIp,
-                            localBucket
-                    );
-                });
+        return requestRedisLease(
+                clientIp,
+                policy,
+                localBucket
+        );
     }
 
     private Mono<RateLimitDecision> requestRedisLease(
             String clientIp,
+            RateLimitPolicy policy,
             TokenBucket localBucket
     ) {
 
@@ -91,12 +125,21 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
             return reject("redis_unavailable");
         }
 
-        return luaRateLimiter.requestLease(clientIp)
-                .flatMap(localBucket::addLeaseAndAllowRequest)
+        return luaRateLimiter
+                .requestLease(clientIp, policy)
+                .map(localBucket::addTokensAndConsume)
                 .map(redisAllowed ->
                         redisAllowed
-                                ? new RateLimitDecision(false, "redis", "allowed")
-                                : new RateLimitDecision(true, "redis", "rejected")
+                                ? new RateLimitDecision(
+                                false,
+                                "redis",
+                                "allowed"
+                        )
+                                : new RateLimitDecision(
+                                true,
+                                "redis",
+                                "rejected"
+                        )
                 )
                 .onErrorResume(error -> {
                     redisHealthState.markUnhealthy();
@@ -105,31 +148,55 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    private Mono<RateLimitDecision> allow(String backend) {
+    private Mono<RateLimitDecision> allow(
+            String backend
+    ) {
+
         return Mono.just(
-                new RateLimitDecision(false, backend, "allowed")
+                new RateLimitDecision(
+                        false,
+                        backend,
+                        "allowed"
+                )
         );
     }
 
-    private Mono<RateLimitDecision> reject(String backend) {
+    private Mono<RateLimitDecision> reject(
+            String backend
+    ) {
+
         return Mono.just(
-                new RateLimitDecision(true, backend, "rejected")
+                new RateLimitDecision(
+                        true,
+                        backend,
+                        "rejected"
+                )
         );
     }
 
-    private String extractClientIp(ServerHttpRequest request) {
+    private String extractClientIp(
+            ServerHttpRequest request
+    ) {
 
         String forwardedFor =
-                request.getHeaders().getFirst("X-Forwarded-For");
+                request.getHeaders()
+                        .getFirst("X-Forwarded-For");
 
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
+        if (forwardedFor != null &&
+                !forwardedFor.isBlank()) {
+
+            return forwardedFor
+                    .split(",")[0]
+                    .trim();
         }
 
         String realIp =
-                request.getHeaders().getFirst("X-Real-IP");
+                request.getHeaders()
+                        .getFirst("X-Real-IP");
 
-        if (realIp != null && !realIp.isBlank()) {
+        if (realIp != null &&
+                !realIp.isBlank()) {
+
             return realIp.trim();
         }
 
