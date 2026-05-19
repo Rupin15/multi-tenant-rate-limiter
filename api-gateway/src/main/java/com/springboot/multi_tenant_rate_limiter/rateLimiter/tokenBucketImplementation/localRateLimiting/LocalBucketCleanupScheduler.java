@@ -13,8 +13,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class LocalBucketCleanupScheduler {
 
-    private static final long BUCKET_TTL_NANOS =
-            60L * TimeWindowUnit.MINUTE.perUnitNano();
+    private static final long BUCKET_TTL_NANOS = 60L * TimeWindowUnit.MINUTE.perUnitNano();
 
     private final IpBasedTokenBucket ipBasedTokenBucket;
 

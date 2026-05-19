@@ -14,7 +14,7 @@ spring:
               filters:
                 - StripPrefix=2
                 - PrefixPath=/v1/payments
-            - id: order-service
+            - id: order-gateway
               uri: http://localhost:8082
               predicates:
                 - Path=/api/orders/**

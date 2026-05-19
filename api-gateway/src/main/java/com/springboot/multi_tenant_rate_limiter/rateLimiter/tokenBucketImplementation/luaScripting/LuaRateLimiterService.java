@@ -1,8 +1,7 @@
 package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting;
 
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.localRateLimiting.RateLimiterProperties;
-import io.micrometer.core.annotation.Counted;
-import io.micrometer.core.annotation.Timed;
+import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.RateLimitPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -20,34 +19,30 @@ public class LuaRateLimiterService {
     private final RedisLuaScriptConfig scriptConfig;
     private final RateLimiterProperties properties;
 
-    @Timed(
-            value = "redis.lease.execution_time",
-            description = "Time spent leasing tokens from Redis"
-    )
-    @Counted(
-            value = "redis.lease.requests",
-            description = "Redis token lease requests"
-    )
-    public Mono<Long> requestLease(String userId) {
-        String bucketKey = buildBucketKey(userId);
-        List<Long> scriptArguments = List.of(
-                properties.getMaxTokens(),
-                properties.getRefillTokensPerMilliSecond(),
-                properties.getLeaseSize(),
+    public Mono<Long> requestLease(
+            String ip,
+            RateLimitPolicy policy
+    ) {
+
+        String bucketKey =
+                KEY_PREFIX
+                        + policy.name().toLowerCase()
+                        + ":"
+                        + ip;
+
+        List<Long> arguments = List.of(
+                policy.getMaxTokens(),
+                policy.getRefillTokensPerSecond(),
+                policy.getLeaseSize(),
                 properties.getTtlSeconds()
         );
 
-        return redisTemplate
-                .execute(
+        return redisTemplate.execute(
                         scriptConfig.leaseScript(),
                         List.of(bucketKey),
-                        scriptArguments
+                        arguments
                 )
                 .next()
                 .defaultIfEmpty(0L);
-    }
-
-    private String buildBucketKey(String userId) {
-        return KEY_PREFIX + userId;
     }
 }
