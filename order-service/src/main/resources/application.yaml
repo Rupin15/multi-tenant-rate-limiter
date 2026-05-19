@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: order-service
+
+server:
+  port: 8082
+
+management:
+  server:
+    port: 9093
+
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+  endpoint:
+    prometheus:
+      enabled: true
+
+    metrics:
+      enabled: true

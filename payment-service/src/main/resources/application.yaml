@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: payment-service
+
+server:
+  port: 8081
+
+management:
+  server:
+    port: 9092
+
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+  endpoint:
+    prometheus:
+      enabled: true
+
+    metrics:
+      enabled: true
