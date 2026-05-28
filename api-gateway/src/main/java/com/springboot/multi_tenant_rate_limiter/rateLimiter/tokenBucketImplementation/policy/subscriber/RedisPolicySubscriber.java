@@ -3,6 +3,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting.RedisHealthState;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.events.RateLimitPolicyEvent;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.services.RateLimitPolicyRegistry;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +30,16 @@ public class RedisPolicySubscriber {
 
     @PostConstruct
     public void subscribe() {
-
         MessageListener listener = this::handleMessage;
         listenerContainer.addMessageListener(listener, new ChannelTopic(CHANNEL));
         log.info("Subscribed to redis channel={}", CHANNEL);
+    }
+
+    @PreDestroy
+    public void stopListenerContainer() {
+        if (listenerContainer.isRunning()) {
+            listenerContainer.stop();
+        }
     }
 
     private void handleMessage(Message message, byte[] pattern) {

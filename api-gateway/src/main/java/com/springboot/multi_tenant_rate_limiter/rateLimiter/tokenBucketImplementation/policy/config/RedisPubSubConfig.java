@@ -28,6 +28,7 @@ public class RedisPubSubConfig {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
         container.setRecoveryInterval(5000);
+        container.setAutoStartup(false);
         return container;
     }
 }

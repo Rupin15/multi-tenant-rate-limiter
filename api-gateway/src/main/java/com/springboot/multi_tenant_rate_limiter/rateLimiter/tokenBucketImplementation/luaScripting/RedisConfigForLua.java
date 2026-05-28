@@ -12,22 +12,16 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfigForLua {
 
     @Bean
-    public ReactiveRedisTemplate<String, Long> reactiveRedisTemplate(
-            ReactiveRedisConnectionFactory connectionFactory
-    ) {
+    public ReactiveRedisTemplate<String, Long> reactiveRedisTemplate(ReactiveRedisConnectionFactory connectionFactory) {
         StringRedisSerializer keySerializer = new StringRedisSerializer();
-        GenericToStringSerializer<Long> valueSerializer =
-                new GenericToStringSerializer<>(Long.class);
-
-        RedisSerializationContext<String, Long> serializationContext =
-                RedisSerializationContext
-                        .<String, Long>newSerializationContext(keySerializer)
-                        .key(keySerializer)
-                        .value(valueSerializer)
-                        .hashKey(keySerializer)
-                        .hashValue(valueSerializer)
-                        .build();
-
+        GenericToStringSerializer<Long> valueSerializer = new GenericToStringSerializer<>(Long.class);
+        RedisSerializationContext<String, Long> serializationContext = RedisSerializationContext
+                                                                        .<String, Long>newSerializationContext(keySerializer)
+                                                                        .key(keySerializer)
+                                                                        .value(valueSerializer)
+                                                                        .hashKey(keySerializer)
+                                                                        .hashValue(valueSerializer)
+                                                                        .build();
         return new ReactiveRedisTemplate<>(connectionFactory, serializationContext);
     }
 }

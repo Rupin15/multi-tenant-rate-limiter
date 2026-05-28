@@ -8,6 +8,7 @@ import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplement
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.repository.RateLimitPolicy;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.services.RateLimitPolicyResolver;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -20,10 +21,9 @@ import reactor.core.publisher.Mono;
 import java.net.InetSocketAddress;
 
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class RateLimitFilter implements GlobalFilter, Ordered {
-
-
     private final IpBasedTokenBucket ipBuckets;
     private final LuaRateLimiterService luaRateLimiter;
     private final RedisHealthState redisHealthState;
@@ -31,18 +31,24 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     private final RateLimitPolicyResolver policyResolver;
 
     @Override
-    public Mono<Void> filter(
-            ServerWebExchange exchange,
-            GatewayFilterChain chain
-    ) {
-
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String clientIp =extractClientIp(exchange.getRequest());
         RateLimitPolicy policy =policyResolver.resolve(exchange);
-
         return applyRateLimit(clientIp, policy)
                 .flatMap(decision -> {
                     metrics.recordDecision(decision.backend(),decision.outcome());
+                    if (log.isDebugEnabled()) {
+                        log.debug("rate-limit decision ip={} policy={} backend={} outcome={}",
+                                clientIp,
+                                policy.name(),
+                                decision.backend(),
+                                decision.outcome());
+                    }
                     if (decision.blocked()) {
+                        log.warn("rate-limit blocked ip={} policy={} backend={}",
+                                clientIp,
+                                policy.name(),
+                                decision.backend());
                         exchange.getResponse().setStatusCode( HttpStatus.TOO_MANY_REQUESTS);
                         return exchange.getResponse()
                                 .setComplete();
@@ -64,6 +70,7 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     private Mono<RateLimitDecision> requestRedisLease( String clientIp,RateLimitPolicy policy,TokenBucket localBucket) {
         if (!redisHealthState.isRedisHealthy()) {
             metrics.recordRedisFallback();
+            log.warn("redis unhealthy, fallback reject ip={} policy={}", clientIp, policy.name());
             return reject("redis_unavailable");
         }
 
@@ -78,6 +85,10 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 .onErrorResume(error -> {
                     redisHealthState.markUnhealthy();
                     metrics.recordRedisFallback();
+                    log.warn("redis lease error, fallback reject ip={} policy={} reason={}",
+                            clientIp,
+                            policy.name(),
+                            error.getMessage());
                     return reject("redis_error");
                 });
     }
@@ -87,8 +98,7 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     }
 
     private Mono<RateLimitDecision> reject( String backend) {
-        return Mono.just(new RateLimitDecision(true,backend,"rejected")
-        );
+        return Mono.just(new RateLimitDecision(true,backend,"rejected"));
     }
 
     private String extractClientIp( ServerHttpRequest request) {
@@ -111,6 +121,5 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     public int getOrder() {
         return Ordered.HIGHEST_PRECEDENCE;
     }
-
     private record RateLimitDecision( boolean blocked,String backend,String outcome) { }
 }

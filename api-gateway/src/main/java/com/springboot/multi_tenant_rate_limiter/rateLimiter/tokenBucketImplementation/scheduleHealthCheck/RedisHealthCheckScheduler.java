@@ -2,6 +2,7 @@ package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplemen
 
 import com.springboot.multi_tenant_rate_limiter.aspects.RateLimiterMetrics;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting.RedisHealthState;
+import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.subscriber.RedisPubSubListenerManager;
 import io.micrometer.core.annotation.Counted;
 import io.micrometer.core.annotation.Timed;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ public class RedisHealthCheckScheduler {
     private final ReactiveRedisTemplate<String, Long> redisTemplate;
     private final RedisHealthState redisHealthState;
     private final RateLimiterMetrics metrics;
+    private final RedisPubSubListenerManager pubSubListenerManager;
 
     @Scheduled(fixedDelayString = "${redis.health-check.delay:5000}")
     @Timed(
@@ -41,6 +43,7 @@ public class RedisHealthCheckScheduler {
     private void markHealthy() {
         redisHealthState.markHealthy();
         metrics.recordRedisHealthCheck("healthy");
+        pubSubListenerManager.startIfHealthy();
     }
 
     private void markUnhealthy() {

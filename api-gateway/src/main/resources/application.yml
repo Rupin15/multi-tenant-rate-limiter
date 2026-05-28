@@ -2,7 +2,6 @@ server:
   port: 8080
 
 spring:
-
   application:
     name: ${SPRING_APPLICATION_NAME:api-gateway}
 
@@ -14,7 +13,6 @@ spring:
       server:
         webflux:
           routes:
-
             - id: payment-gateway
               uri: ${SPRING_PAYMENT_URL:http://localhost:8081}
               predicates:
@@ -22,6 +20,10 @@ spring:
               filters:
                 - StripPrefix=2
                 - PrefixPath=/v1/payments
+                - name: CircuitBreaker
+                  args:
+                    name: paymentService
+                    fallbackUri: forward:/fallback/payment
 
             - id: order-gateway
               uri: ${SPRING_ORDER_URL:http://localhost:8082}
@@ -31,34 +33,162 @@ spring:
                 - StripPrefix=2
                 - PrefixPath=/v1/orders
 
+                - name: CircuitBreaker
+                  args:
+                    name: orderService
+                    fallbackUri: forward:/fallback/order
+
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 2s
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/rate_limiter}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/rate_limiter?options=-c%20TimeZone=UTC}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
 
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
 
 management:
+
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,gateway
+        include: >
+          health,
+          info,
+          metrics,
+          prometheus,
+          gateway,
+          env,
+          configprops,
+          circuitbreakers,
+          circuitbreakerevents,
+          retries,
+          retryevents,
+          timelimiters,
+          timelimiterevents,
+          bulkheads,
+          bulkheadevents
 
   endpoint:
+
+    health:
+      show-details: always
+      probes:
+        enabled: true
     prometheus:
       enabled: true
     gateway:
       enabled: true
     metrics:
       enabled: true
+    circuitbreakers:
+      enabled: true
+    circuitbreakerevents:
+      enabled: true
+    retries:
+      enabled: true
+    retryevents:
+      enabled: true
+    timelimiters:
+      enabled: true
+    timelimiterevents:
+      enabled: true
+    bulkheads:
+      enabled: true
+    bulkheadevents:
+      enabled: true
+
+
+logging:
+
+  level:
+    root: INFO
+    io.github.resilience4j: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty.http.client: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger - %msg%n"
+
 
 rate-limiter:
   redis:
     topic: update-policy
+    pubsub:
+      reconnect:
+        base-delay-ms: 1000
+        max-delay-ms: 30000
+        multiplier: 2.0
+
+
+resilience4j:
+  bulkhead:
+    instances:
+      redisLease:
+        max-concurrent-calls: 64
+        max-wait-duration: 25ms
+
+
+  timelimiter:
+    instances:
+      redisLease:
+        timeout-duration: 150ms
+        cancel-running-future: true
+
+
+  retry:
+    instances:
+      redisLease:
+        max-attempts: 3
+        wait-duration: 50ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2.0
+        fail-after-max-attempts: true
+        retry-exceptions:
+          - io.lettuce.core.RedisConnectionException
+          - java.util.concurrent.TimeoutException
+        ignore-exceptions:
+          - java.lang.IllegalArgumentException
+
+  circuitbreaker:
+    instances:
+      redisLease:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 60
+        slow-call-duration-threshold: 150ms
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        permitted-number-of-calls-in-half-open-state: 5
+        wait-duration-in-open-state: 20s
+        automatic-transition-from-open-to-half-open-enabled: true
+
+      paymentService:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        sliding-window-size: 10
+        minimum-number-of-calls: 4
+        permitted-number-of-calls-in-half-open-state: 2
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true
+
+      orderService:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        sliding-window-size: 10
+        minimum-number-of-calls: 4
+        permitted-number-of-calls-in-half-open-state: 2
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true

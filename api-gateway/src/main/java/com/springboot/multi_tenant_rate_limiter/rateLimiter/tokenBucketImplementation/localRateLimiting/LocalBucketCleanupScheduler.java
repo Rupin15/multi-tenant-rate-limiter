@@ -18,14 +18,8 @@ public class LocalBucketCleanupScheduler {
     private final IpBasedTokenBucket ipBasedTokenBucket;
 
     @Scheduled(fixedRateString = "${rate-limiter.local.cleanup.interval:3600000}")
-    @Timed(
-            value = "rate_limiter.local.cleanup.scheduler.time",
-            description = "Time spent running local bucket cleanup"
-    )
-    @Counted(
-            value = "rate_limiter.local.cleanup.scheduler.runs",
-            description = "Local bucket cleanup scheduler executions"
-    )
+    @Timed(value = "rate_limiter.local.cleanup.scheduler.time", description = "Time spent running local bucket cleanup")
+    @Counted(value = "rate_limiter.local.cleanup.scheduler.runs", description = "Local bucket cleanup scheduler executions")
     @Observed(name = "rate_limiter.local.cleanup.scheduler")
     public void cleanupExpiredBuckets() {
         ipBasedTokenBucket.removeExpiredBuckets(BUCKET_TTL_NANOS);
