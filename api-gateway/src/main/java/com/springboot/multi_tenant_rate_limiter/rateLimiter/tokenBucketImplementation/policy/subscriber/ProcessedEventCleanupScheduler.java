@@ -19,10 +19,6 @@ public class ProcessedEventCleanupScheduler {
         Instant cutoff = Instant.now().minusSeconds(3600);
         subscriber.getProcessedEvents()
                 .entrySet()
-                .removeIf(
-                        entry ->
-                                entry.getValue()
-                                        .isBefore(cutoff)
-                );
+                .removeIf(entry -> entry.getValue().isBefore(cutoff));
     }
 }

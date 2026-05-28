@@ -32,21 +32,32 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String clientIp =extractClientIp(exchange.getRequest());
-        RateLimitPolicy policy =policyResolver.resolve(exchange);
+        String clientIp = extractClientIp(exchange.getRequest());
+        RateLimitPolicyResolver.ResolvedRateLimitPolicy resolvedPolicy = policyResolver.resolve(exchange);
+        RateLimitPolicy policy = resolvedPolicy.policy();
+
         return applyRateLimit(clientIp, policy)
                 .flatMap(decision -> {
-                    metrics.recordDecision(decision.backend(),decision.outcome());
+                    metrics.recordDecision(
+                            resolvedPolicy.routeId(),
+                            resolvedPolicy.tier().name(),
+                            decision.backend(),
+                            decision.outcome()
+                    );
                     if (log.isDebugEnabled()) {
-                        log.debug("rate-limit decision ip={} policy={} backend={} outcome={}",
+                        log.debug("rate-limit decision ip={} routeId={} tier={} policy={} backend={} outcome={}",
                                 clientIp,
+                                resolvedPolicy.routeId(),
+                                resolvedPolicy.tier(),
                                 policy.name(),
                                 decision.backend(),
                                 decision.outcome());
                     }
                     if (decision.blocked()) {
-                        log.warn("rate-limit blocked ip={} policy={} backend={}",
+                        log.warn("rate-limit blocked ip={} routeId={} tier={} policy={} backend={}",
                                 clientIp,
+                                resolvedPolicy.routeId(),
+                                resolvedPolicy.tier(),
                                 policy.name(),
                                 decision.backend());
                         exchange.getResponse().setStatusCode( HttpStatus.TOO_MANY_REQUESTS);
@@ -119,7 +130,7 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return Ordered.HIGHEST_PRECEDENCE;
+        return Ordered.HIGHEST_PRECEDENCE + 2;
     }
     private record RateLimitDecision( boolean blocked,String backend,String outcome) { }
 }

@@ -18,6 +18,7 @@
 
     <modules>
         <module>api-gateway</module>
+        <module>configuration-server</module>
         <module>payment-service</module>
         <module>order-service</module>
     </modules>

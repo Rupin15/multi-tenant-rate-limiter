@@ -1,7 +1,18 @@
-package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.repository;
+package com.springboot.multi_tenant_rate_limiter.configuration_server.policy.repository;
 
-import jakarta.persistence.*;
-import lombok.*;
+import com.springboot.multi_tenant_rate_limiter.configuration_server.policy.RateLimitPolicy;
+import jakarta.persistence.Column;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -15,9 +26,8 @@ import java.time.ZoneOffset;
 @AllArgsConstructor
 public class RateLimitPolicyEntity {
 
-    @Id
-    @Column(name = "route_id", nullable = false)
-    private String routeId;
+    @EmbeddedId
+    private RateLimitPolicyId id;
 
     @Column(nullable = false)
     private String name;
@@ -25,10 +35,7 @@ public class RateLimitPolicyEntity {
     @Column(name = "max_tokens", nullable = false)
     private long maxTokens;
 
-    @Column(
-            name = "refill_tokens_per_second",
-            nullable = false
-    )
+    @Column(name = "refill_tokens_per_second", nullable = false)
     private long refillTokensPerSecond;
 
     @Column(name = "lease_size", nullable = false)
@@ -39,7 +46,7 @@ public class RateLimitPolicyEntity {
     private long version = 1;
 
     @Version
-    @Column(nullable = false)
+    @Column(name = "entity_version", nullable = false)
     @Builder.Default
     private Long entityVersion = 0L;
 
@@ -49,31 +56,13 @@ public class RateLimitPolicyEntity {
     @PrePersist
     @PreUpdate
     public void updateTimestamp() {
-
-        lastUpdated =
-                OffsetDateTime.now(ZoneOffset.UTC);
-    }
-
-    public static RateLimitPolicyEntity from(
-            String routeId,
-            RateLimitPolicy policy
-    ) {
-
-        return RateLimitPolicyEntity.builder()
-                .routeId(routeId)
-                .name(policy.name())
-                .maxTokens(policy.maxTokens())
-                .refillTokensPerSecond(
-                        policy.refillTokensPerSecond()
-                )
-                .leaseSize(policy.leaseSize())
-                .version(policy.version())
-                .build();
+        lastUpdated = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public RateLimitPolicy toPolicy() {
-
         return new RateLimitPolicy(
+                id.getRouteId(),
+                id.getTier(),
                 name,
                 maxTokens,
                 refillTokensPerSecond,

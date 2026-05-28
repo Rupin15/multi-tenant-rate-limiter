@@ -11,8 +11,18 @@ public class RateLimiterMetrics {
         this.meterRegistry = meterRegistry;
     }
 
-    public void recordDecision(String backend, String outcome) {
-        meterRegistry.counter("rate_limiter.decisions", "backend", backend, "outcome", outcome).increment();
+    public void recordDecision(String routeId, String tier, String backend, String outcome) {
+        meterRegistry.counter(
+                "rate_limiter.decisions",
+                "routeId",
+                routeId,
+                "tier",
+                tier,
+                "backend",
+                backend,
+                "outcome",
+                outcome
+        ).increment();
     }
 
     public void recordRedisFallback() {
@@ -25,5 +35,9 @@ public class RateLimiterMetrics {
 
     public void recordRedisHealthCheck(String outcome) {
         meterRegistry.counter("redis.health_checks", "outcome", outcome).increment();
+    }
+
+    public void recordConfigSync(String outcome) {
+        meterRegistry.counter("rate_limiter.config.sync", "outcome", outcome).increment();
     }
 }

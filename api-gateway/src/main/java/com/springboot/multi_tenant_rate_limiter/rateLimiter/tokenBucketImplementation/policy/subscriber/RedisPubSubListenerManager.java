@@ -26,7 +26,6 @@ public class RedisPubSubListenerManager {
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
-        // Try once on startup; further attempts are gated by health checks + backoff.
         startIfHealthy();
     }
 

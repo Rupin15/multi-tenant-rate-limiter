@@ -11,24 +11,41 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisPubSubConfig {
 
     @Bean
-    public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory connectionFactory) {
-        StringRedisSerializer serializer = new StringRedisSerializer();
-        RedisTemplate<String, String> template = new RedisTemplate<>();
+    public RedisTemplate<String, String> redisTemplate(
+            RedisConnectionFactory connectionFactory
+    ) {
+
+        StringRedisSerializer serializer =
+                new StringRedisSerializer();
+
+        RedisTemplate<String, String> template =
+                new RedisTemplate<>();
+
         template.setConnectionFactory(connectionFactory);
+
         template.setKeySerializer(serializer);
         template.setValueSerializer(serializer);
+
         template.setHashKeySerializer(serializer);
         template.setHashValueSerializer(serializer);
+
         template.afterPropertiesSet();
+
         return template;
     }
 
     @Bean
-    public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+    public RedisMessageListenerContainer redisMessageListenerContainer(
+            RedisConnectionFactory connectionFactory
+    ) {
+
+        RedisMessageListenerContainer container =
+                new RedisMessageListenerContainer();
+
         container.setConnectionFactory(connectionFactory);
+
         container.setRecoveryInterval(5000);
-        container.setAutoStartup(false);
+
         return container;
     }
 }

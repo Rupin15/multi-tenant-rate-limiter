@@ -42,24 +42,18 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
-      timeout: 2s
-
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/rate_limiter?options=-c%20TimeZone=UTC}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
-
-
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        format_sql: true
-    open-in-view: false
+      timeout: 10s
+      client-type: lettuce
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+        shutdown-timeout: 10s
 
 management:
+  server:
+    port: 9091
 
   endpoints:
     web:
@@ -110,6 +104,12 @@ management:
     bulkheadevents:
       enabled: true
 
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 logging:
 
@@ -119,10 +119,14 @@ logging:
     org.springframework.cloud.gateway: INFO
     reactor.netty.http.client: INFO
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] - %msg%n"
 
 
 rate-limiter:
+  config-server:
+    base-url: ${RATE_LIMITER_CONFIG_SERVER_BASE_URL:http://localhost:8085/internal/config/rate-limit-policies}
+    request-timeout: 2s
+    sync-delay-ms: 30000
   redis:
     topic: update-policy
     pubsub:

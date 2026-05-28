@@ -51,8 +51,8 @@ public class RedisPolicySubscriber {
                 return;
             }
             processedEvents.put(event.getEventId(), Instant.now());
-            registry.refreshPolicy(event.getPolicyName(), event.getPolicy());
-            log.info("Updated local cache route={} version={}", event.getPolicyName(), event.getVersion());
+            registry.refreshPolicy(event.getRouteId(), event.getTier(), event.getPolicy());
+            log.info("Updated local cache route={} tier={} version={}", event.getRouteId(), event.getTier(), event.getVersion());
             redisHealthState.markHealthy();
         } catch (Exception ex) {
             redisHealthState.markUnhealthy();

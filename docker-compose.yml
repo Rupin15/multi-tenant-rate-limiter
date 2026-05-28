@@ -10,8 +10,8 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 15
 
     networks:
       - rate-limiter
@@ -24,9 +24,8 @@ services:
       POSTGRES_DB: rate_limiter
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      TZ: Asia/Kolkata
-      PGTZ: Asia/Kolkata
-
+      TZ: UTC
+      PGTZ: UTC
     ports:
       - "5432:5432"
 
@@ -52,6 +51,9 @@ services:
 
     container_name: rate-limiter-payment-service
 
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+
     ports:
       - "8081:8081"
 
@@ -66,6 +68,9 @@ services:
         MODULE: order-service
 
     container_name: rate-limiter-order-service
+
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
 
     ports:
       - "8082:8082"
@@ -84,12 +89,12 @@ services:
       SPRING_APPLICATION_NAME: api-gateway
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-policy:5432/rate_limiter
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATA_REDIS_TIMEOUT: 10s
+      SPRING_DATA_REDIS_LETTUCE_SHUTDOWN_TIMEOUT: 10s
+      RATE_LIMITER_CONFIG_SERVER_BASE_URL: http://configuration-server:8085/internal/config/rate-limit-policies
       SPRING_PAYMENT_URL: http://payment-service:8081
       SPRING_ORDER_URL: http://order-service:8082
-      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Kolkata
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
 
     depends_on:
       redis:
@@ -97,9 +102,52 @@ services:
 
       postgres-policy:
         condition: service_healthy
+      configuration-server:
+        condition: service_healthy
 
     healthcheck:
-      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1" ]
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+    expose:
+      - "8080"
+      - "9091"
+
+    networks:
+      - rate-limiter
+
+  configuration-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: configuration-server
+
+    container_name: rate-limiter-configuration-server
+
+    ports:
+      - "8085:8085"
+      - "9094:9094"
+
+    environment:
+      SPRING_APPLICATION_NAME: configuration-server
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-policy:5432/rate_limiter?options=-c%20TimeZone=UTC
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres-policy:
+        condition: service_healthy
+
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:9094/actuator/health || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -153,6 +201,17 @@ services:
 
     depends_on:
       - prometheus
+
+    networks:
+      - rate-limiter
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: rate-limiter-jaeger
+
+    ports:
+      - "16686:16686"
+      - "4318:4318"
 
     networks:
       - rate-limiter

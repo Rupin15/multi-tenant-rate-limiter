@@ -1,12 +1,11 @@
-package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.publisher;
+package com.springboot.multi_tenant_rate_limiter.configuration_server.policy.publisher;
 
-import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting.RedisHealthState;
-import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.outbox.PolicyEventOutboxEntity;
-import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.outbox.PolicyEventOutboxRepository;
+import com.springboot.multi_tenant_rate_limiter.configuration_server.metrics.ConfigurationServerMetrics;
+import com.springboot.multi_tenant_rate_limiter.configuration_server.policy.outbox.PolicyEventOutboxEntity;
+import com.springboot.multi_tenant_rate_limiter.configuration_server.policy.outbox.PolicyEventOutboxRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,33 +17,35 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class PolicyOutboxPublisher {
+
     private static final String CHANNEL = "rate-limit-policy-updates";
+
     private final PolicyEventOutboxRepository outboxRepository;
     private final RedisTemplate<String, String> redisTemplate;
-    private final RedisHealthState redisHealthState;
+    private final ConfigurationServerMetrics metrics;
 
-    @Scheduled(fixedDelay = 10000)
+    @Scheduled(fixedDelayString = "${rate-limiter.config.outbox.retry-delay-ms:10000}")
     @Transactional
     public void retryFailedEvents() {
-
         List<PolicyEventOutboxEntity> events = outboxRepository.findTop100ByProcessedFalseOrderByCreatedAtAsc();
         if (events.isEmpty()) {
             return;
         }
+
         for (PolicyEventOutboxEntity event : events) {
             try {
-
                 redisTemplate.convertAndSend(CHANNEL, event.getPayload());
-                redisHealthState.markHealthy();
                 event.setProcessed(true);
                 outboxRepository.save(event);
-                log.info("Republished event={}", event.getId());
-            } catch (DataAccessException ex) {
-                redisHealthState.markUnhealthy();
-                log.warn("Redis still unavailable. eventId={}", event.getId());
+                metrics.recordOutboxPublish("retry_success");
+                log.info("republished policy event id={} routeId={} tier={}", event.getId(), event.getRouteId(), event.getTier());
+            } catch (DataAccessException exception) {
+                metrics.recordOutboxPublish("retry_redis_unavailable");
+                log.warn("redis unavailable while retrying policy event id={}", event.getId());
                 return;
-            } catch (Exception ex) {
-                log.error("Unexpected retry failure event={}", event.getId(), ex);
+            } catch (Exception exception) {
+                metrics.recordOutboxPublish("retry_error");
+                log.error("unexpected policy retry failure id={}", event.getId(), exception);
             }
         }
     }

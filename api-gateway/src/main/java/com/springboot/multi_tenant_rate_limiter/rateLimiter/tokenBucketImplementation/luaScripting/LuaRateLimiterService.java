@@ -1,5 +1,6 @@
 package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.luaScripting;
 
+import com.springboot.multi_tenant_rate_limiter.chaos.ChaosInjectionService;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.localRateLimiting.RateLimiterProperties;
 import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.repository.RateLimitPolicy;
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -35,6 +36,7 @@ public class LuaRateLimiterService {
     private final TimeLimiter redisLeaseTimeLimiter;
     private final Retry redisLeaseRetry;
     private final CircuitBreaker redisLeaseCircuitBreaker;
+    private final ChaosInjectionService chaosInjectionService;
 
     public LuaRateLimiterService(
             ReactiveRedisTemplate<String, Long> redisTemplate,
@@ -43,11 +45,13 @@ public class LuaRateLimiterService {
             BulkheadRegistry bulkheadRegistry,
             TimeLimiterRegistry timeLimiterRegistry,
             RetryRegistry retryRegistry,
-            CircuitBreakerRegistry circuitBreakerRegistry
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            ChaosInjectionService chaosInjectionService
     ) {
         this.redisTemplate = redisTemplate;
         this.scriptConfig = scriptConfig;
         this.properties = properties;
+        this.chaosInjectionService = chaosInjectionService;
         this.redisLeaseBulkhead = bulkheadRegistry.bulkhead(REDIS_LEASE_RESILIENCE_NAME);
         this.redisLeaseTimeLimiter = timeLimiterRegistry.timeLimiter(REDIS_LEASE_RESILIENCE_NAME);
         this.redisLeaseRetry = retryRegistry.retry(REDIS_LEASE_RESILIENCE_NAME);
@@ -58,15 +62,18 @@ public class LuaRateLimiterService {
     @Counted(value = "rate_limiter.redis.lease.calls", description = "Redis lease invocation count")
 
     public Mono<Long> requestLease(String ip, RateLimitPolicy policy) {
+        if (chaosInjectionService.isRedisLeaseFailureEnabled()) {
+            return Mono.error(new IllegalStateException("Chaos injection: redis lease failure enabled"));
+        }
         String bucketKey = KEY_PREFIX + policy.name().toLowerCase() + ":" + ip;
         List<Long> arguments = List.of(policy.maxTokens(), policy.refillTokensPerSecond(), policy.leaseSize(), properties.getTtlSeconds());
         return redisTemplate.execute(scriptConfig.leaseScript(), List.of(bucketKey), arguments)
                 .next()
                 .defaultIfEmpty(0L)
                 .transformDeferred(BulkheadOperator.of(redisLeaseBulkhead))
+                .transformDeferred(CircuitBreakerOperator.of(redisLeaseCircuitBreaker))
                 .transformDeferred(TimeLimiterOperator.of(redisLeaseTimeLimiter))
                 .transformDeferred(RetryOperator.of(redisLeaseRetry))
-                .transformDeferred(CircuitBreakerOperator.of(redisLeaseCircuitBreaker))
                 .doOnSuccess(result -> log.debug("Redis lease accepted key={} tokens={}", bucketKey, result))
                 .doOnError(error -> log.warn("Redis lease failed key={} policy={} reason={}", bucketKey, policy.name(), error.getMessage()));
     }
