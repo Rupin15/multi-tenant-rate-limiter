@@ -1,6 +1,12 @@
+server:
+  port: 8080
+
 spring:
   application:
-    name: api-gateway
+    name: ${SPRING_APPLICATION_NAME:api-gateway}
+
+  jackson:
+    time-zone: UTC
 
   cloud:
     gateway:
@@ -8,26 +14,42 @@ spring:
         webflux:
           routes:
             - id: payment-gateway
-              uri: http://localhost:8081
+              uri: ${SPRING_PAYMENT_URL:http://localhost:8081}
               predicates:
                 - Path=/api/payments/**
               filters:
                 - StripPrefix=2
                 - PrefixPath=/v1/payments
+                - name: CircuitBreaker
+                  args:
+                    name: paymentService
+                    fallbackUri: forward:/fallback/payment
+
             - id: order-gateway
-              uri: http://localhost:8082
+              uri: ${SPRING_ORDER_URL:http://localhost:8082}
               predicates:
                 - Path=/api/orders/**
               filters:
                 - StripPrefix=2
                 - PrefixPath=/v1/orders
 
+                - name: CircuitBreaker
+                  args:
+                    name: orderService
+                    fallbackUri: forward:/fallback/order
+
   data:
     redis:
-      host: localhost
-      port: 6379
-      timeout: 500ms
-      connect-timeout: 500ms
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 10s
+      client-type: lettuce
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+        shutdown-timeout: 10s
 
 management:
   server:
@@ -36,24 +58,141 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,gateway
-
-  observations:
-    annotations:
-      enabled: true
+        include: >
+          health,
+          info,
+          metrics,
+          prometheus,
+          gateway,
+          env,
+          configprops,
+          circuitbreakers,
+          circuitbreakerevents,
+          retries,
+          retryevents,
+          timelimiters,
+          timelimiterevents,
+          bulkheads,
+          bulkheadevents
 
   endpoint:
+
+    health:
+      show-details: always
+      probes:
+        enabled: true
     prometheus:
       enabled: true
-
-    metrics:
-      enabled: true
-
     gateway:
       enabled: true
+    metrics:
+      enabled: true
+    circuitbreakers:
+      enabled: true
+    circuitbreakerevents:
+      enabled: true
+    retries:
+      enabled: true
+    retryevents:
+      enabled: true
+    timelimiters:
+      enabled: true
+    timelimiterevents:
+      enabled: true
+    bulkheads:
+      enabled: true
+    bulkheadevents:
+      enabled: true
+
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+
+  level:
+    root: INFO
+    io.github.resilience4j: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty.http.client: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] - %msg%n"
+
 
 rate-limiter:
-  max-tokens: 100
-  refill-tokens-per-second: 10
-  lease-size: 10
-  ttl-seconds: 7200
+  config-server:
+    base-url: ${RATE_LIMITER_CONFIG_SERVER_BASE_URL:http://localhost:8085/internal/config/rate-limit-policies}
+    request-timeout: 2s
+    sync-delay-ms: 30000
+  redis:
+    topic: update-policy
+    pubsub:
+      reconnect:
+        base-delay-ms: 1000
+        max-delay-ms: 30000
+        multiplier: 2.0
+
+
+resilience4j:
+  bulkhead:
+    instances:
+      redisLease:
+        max-concurrent-calls: 64
+        max-wait-duration: 25ms
+
+
+  timelimiter:
+    instances:
+      redisLease:
+        timeout-duration: 150ms
+        cancel-running-future: true
+
+
+  retry:
+    instances:
+      redisLease:
+        max-attempts: 3
+        wait-duration: 50ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2.0
+        fail-after-max-attempts: true
+        retry-exceptions:
+          - io.lettuce.core.RedisConnectionException
+          - java.util.concurrent.TimeoutException
+        ignore-exceptions:
+          - java.lang.IllegalArgumentException
+
+  circuitbreaker:
+    instances:
+      redisLease:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 60
+        slow-call-duration-threshold: 150ms
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        permitted-number-of-calls-in-half-open-state: 5
+        wait-duration-in-open-state: 20s
+        automatic-transition-from-open-to-half-open-enabled: true
+
+      paymentService:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        sliding-window-size: 10
+        minimum-number-of-calls: 4
+        permitted-number-of-calls-in-half-open-state: 2
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true
+
+      orderService:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        sliding-window-size: 10
+        minimum-number-of-calls: 4
+        permitted-number-of-calls-in-half-open-state: 2
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true

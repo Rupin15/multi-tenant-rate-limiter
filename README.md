@@ -2,77 +2,81 @@
 
 ## Overview
 
-This repository implements a multi-module Spring Boot project demonstrating a distributed rate limiting gateway architecture. The gateway uses local token buckets plus Redis-backed leases for throttling client requests before routing traffic to downstream services.
+This repository is a multi-module Spring Boot backend system for distributed, tier-aware rate limiting.  
+The gateway combines local token buckets with Redis-backed Lua leases and receives its policy configuration from a dedicated configuration server.
 
-The repository is already Docker-ready: `order-service`, `payment-service`, `api-gateway`, and Redis are intended to be managed through Docker Compose.
-
-## Services
+## Modules
 
 - `api-gateway`
-  - Spring Cloud Gateway service based on WebFlux for non-blocking concurrent request handling
-  - Custom global rate limiting filter for client IPs
-  - Uses reactive Redis and Lua scripting for distributed token lease handling
-  - Exposes Actuator metrics and Prometheus scraping endpoints
+  - Spring Cloud Gateway (WebFlux)
+  - Tier-aware rate limiting (`FREE`, `PRO`, `ENTERPRISE`)
+  - Pull + pub/sub policy sync from configuration server
+  - Chaos injection endpoint: `POST /admin/chaos`
+  - Prometheus metrics + OpenTelemetry traces + correlation ID propagation
+
+- `configuration-server`
+  - Source of truth for rate-limit policies
+  - Persists tiered route policies in Postgres
+  - Uses outbox + Redis pub/sub for policy update propagation
+  - Admin APIs:
+    - `GET /admin/policies`
+    - `POST /admin/policies`
+  - Internal policy feed:
+    - `GET /internal/config/rate-limit-policies`
 
 - `payment-service`
-  - Simple Spring Boot service
-  - Healthcheck endpoint: `GET /v1/payments/healthcheck`
+  - Downstream service (`GET /v1/payments/healthcheck`)
+  - Correlation ID + OpenTelemetry enabled
 
 - `order-service`
-  - Simple Spring Boot service
-  - Healthcheck endpoint: `GET /v1/orders/healthcheck`
+  - Downstream service (`GET /v1/orders/healthcheck`)
+  - Correlation ID + OpenTelemetry enabled
 
-- `redis`
-  - Used as the shared backend for distributed rate limiting
-  - Configured in `docker-compose.yml`
+## Infrastructure
 
-- `prometheus`
-  - Metrics scraping service
+- `redis` for distributed leases + policy pub/sub
+- `postgres-policy` for policy and outbox persistence
+- `prometheus` for scraping metrics
+- `grafana` for dashboards
+- `jaeger` for distributed tracing
 
-- `grafana`
-  - Dashboard visualization service
+## Architecture Flow
 
-## Architecture
-
-- Requests flow through the API gateway.
-- The gateway extracts the client IP and applies a local token bucket check.
-- If the local bucket is exhausted, the gateway requests a lease from Redis using Lua scripts.
-- Redis health is monitored and the gateway rejects requests when Redis becomes unavailable.
-- Gateway routes are configured for the payment and order services.
-
-## Docker Setup
-
-The repository includes a root `docker-compose.yml` that defines:
-
-- `redis`
-- `payment-service`
-- `order-service`
-- `prometheus`
-- `grafana`
-
+1. Request enters `api-gateway`.
+2. Gateway resolves tenant tier from:
+   - `X-Tenant-Tier` header, else
+   - `tier` query param, else
+   - JSON body field `tier`, else defaults to `FREE`.
+3. Gateway resolves route+tier policy from local cache.
+4. Local token bucket check runs first.
+5. If local tokens are exhausted, Redis Lua lease is requested.
+6. Policies are synced from `configuration-server` and updated via Redis events.
 
 ## Run
 
-From the repository root:
+From repo root:
 
 ```bash
 docker-compose up
 ```
 
-If the API gateway is enabled in `docker-compose.yml`, it will proxy requests to:
+Gateway routes:
 
-- `/api/payments/**` → `payment-service`
-- `/api/orders/**` → `order-service`
+- `/api/payments/**` -> `payment-service`
+- `/api/orders/**` -> `order-service`
 
-## Configuration
+## Key Config Files
 
-- Main gateway config: `api-gateway/src/main/resources/application.yml`
-- Redis Lua scripts: `api-gateway/src/main/resources/script/tokenBucket.lua` and `api-gateway/src/main/resources/script/refillLocal.lua`
-- Monitoring config: `monitoring/prometheus.yml`
+- Gateway config: `api-gateway/src/main/resources/application.yml`
+- Config server config: `configuration-server/src/main/resources/application.yml`
+- DB schema/seed: `postgres/init/01-schema.sql`
+- Prometheus config: `monitoring/prometheus.yml`
 - Grafana dashboard: `monitoring/grafana/dashboards/rate-limiter-dashboard.json`
 
-## Notes
+## Validation
 
-- Built with Java 25 and Spring Boot 4.0.6
-- The root `pom.xml` defines the multi-module build
-- Docker orchestration is the primary runtime mechanism for this project
+Run compile + tests:
+
+```bash
+mvn test
+```

@@ -5,6 +5,7 @@ WORKDIR /workspace
 
 COPY pom.xml .
 COPY api-gateway/pom.xml api-gateway/pom.xml
+COPY configuration-server/pom.xml configuration-server/pom.xml
 COPY payment-service/pom.xml payment-service/pom.xml
 COPY order-service/pom.xml order-service/pom.xml
 COPY ${MODULE}/src ${MODULE}/src

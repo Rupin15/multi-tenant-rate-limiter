@@ -7,11 +7,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TokenBucket {
 
     private static final int MAX_CAS_RETRIES = 16;
-
     private final long maxTokens;
-
     private final AtomicReference<BucketState> state;
-
     private final MeterRegistry meterRegistry;
 
     public TokenBucket( long maxTokens,MeterRegistry meterRegistry) {
@@ -62,32 +59,15 @@ public class TokenBucket {
     }
 
     private void recordOutcome(boolean allowed) {
-
-        if (meterRegistry == null) {
-            return;
-        }
-
-        meterRegistry.counter(
-                "rate_limiter.local.outcome",
-                "result",
-                allowed ? "allowed" : "rejected"
-        ).increment();
+        if (meterRegistry == null) {return;}
+        meterRegistry.counter("rate_limiter.local.outcome", "result", allowed ? "allowed" : "rejected").increment();
     }
 
     private void recordCasRetryFailure() {
-
-        if (meterRegistry == null) {
-            return;
-        }
-
-        meterRegistry.counter(
-                "rate_limiter.local.cas.retry.exhausted"
-        ).increment();
+        if (meterRegistry == null) {return;}
+        meterRegistry.counter("rate_limiter.local.cas.retry.exhausted").increment();
     }
 
-    private record BucketState(
-            double tokens,
-            long lastUpdatedTimestamp
-    ) {
+    private record BucketState(double tokens, long lastUpdatedTimestamp) {
     }
 }
