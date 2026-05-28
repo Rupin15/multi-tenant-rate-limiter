@@ -10,23 +10,46 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class IpBasedTokenBucket {
 
-    private final ConcurrentHashMap<String, TokenBucket> buckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TokenBucket> buckets =
+            new ConcurrentHashMap<>();
+
+    private final MeterRegistry meterRegistry;
 
     public IpBasedTokenBucket(MeterRegistry meterRegistry) {
-        Gauge.builder("rate_limiter.local.tracked_buckets",buckets, ConcurrentHashMap::size).register(meterRegistry);
+
+        this.meterRegistry = meterRegistry;
+
+        Gauge.builder(
+                "rate_limiter.local.tracked_buckets",
+                buckets,
+                ConcurrentHashMap::size
+        ).register(meterRegistry);
     }
 
-    public TokenBucket getBucket(String ip, RateLimitPolicy policy) {
+    public TokenBucket getBucket(
+            String ip,
+            RateLimitPolicy policy
+    ) {
+
         String key = ip + ":" + policy.name();
-        return buckets.computeIfAbsent(key, ignored -> new TokenBucket(policy.leaseSize(), null)
+
+        return buckets.computeIfAbsent(
+                key,
+                ignored -> new TokenBucket(policy, meterRegistry)
         );
     }
 
     public void removeExpiredBuckets(long ttlNanos) {
+
         long currentTime = System.nanoTime();
+
         buckets.entrySet().removeIf(entry -> {
+
             TokenBucket bucket = entry.getValue();
-            return currentTime - bucket.getLastUpdatedTimestamp() > ttlNanos;
+
+            return currentTime
+                    - bucket.getLastUpdatedTimestamp()
+                    > ttlNanos;
         });
     }
 }
