@@ -134,15 +134,11 @@ public class TokenBucket {
             if (state.compareAndSet(current, updated)) {
 
                 recordOutcome(allowed);
-
                 return allowed;
             }
-
             Thread.onSpinWait();
         }
-
         recordCasRetryFailure();
-
         return false;
     }
 
