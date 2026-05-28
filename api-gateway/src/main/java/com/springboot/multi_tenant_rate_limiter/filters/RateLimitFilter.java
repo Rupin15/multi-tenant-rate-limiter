@@ -78,32 +78,92 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
         return requestRedisLease(clientIp,policy,localBucket);
     }
 
-    private Mono<RateLimitDecision> requestRedisLease( String clientIp,RateLimitPolicy policy,TokenBucket localBucket) {
+    private Mono<RateLimitDecision> requestRedisLease(
+            String clientIp,
+            RateLimitPolicy policy,
+            TokenBucket localBucket
+    ) {
+
         if (!redisHealthState.isRedisHealthy()) {
+
             metrics.recordRedisFallback();
-            log.warn("redis unhealthy, fallback reject ip={} policy={}", clientIp, policy.name());
-            return reject("redis_unavailable");
+
+            boolean degradedAllowed =
+                    localBucket.tryConsumeWithLocalRefill();
+
+            log.warn(
+                    "redis unavailable, degraded autonomous mode ip={} policy={} allowed={}",
+                    clientIp,
+                    policy.name(),
+                    degradedAllowed
+            );
+
+            return Mono.just(
+                    degradedAllowed
+                            ? new RateLimitDecision(
+                            false,
+                            "degraded_local",
+                            "allowed"
+                    )
+                            : new RateLimitDecision(
+                            true,
+                            "degraded_local",
+                            "rejected"
+                    )
+            );
         }
 
         return luaRateLimiter
                 .requestLease(clientIp, policy)
+
                 .map(localBucket::addTokensAndConsume)
+
                 .map(redisAllowed ->
-                        redisAllowed? new RateLimitDecision(false,"redis","allowed")
-                                : new RateLimitDecision(true,"redis","rejected"
+                        redisAllowed
+                                ? new RateLimitDecision(
+                                false,
+                                "redis",
+                                "allowed"
+                        )
+                                : new RateLimitDecision(
+                                true,
+                                "redis",
+                                "rejected"
                         )
                 )
+
                 .onErrorResume(error -> {
+
                     redisHealthState.markUnhealthy();
+
                     metrics.recordRedisFallback();
-                    log.warn("redis lease error, fallback reject ip={} policy={} reason={}",
+
+                    log.warn(
+                            "redis lease error degraded mode ip={} policy={} reason={}",
                             clientIp,
                             policy.name(),
-                            error.getMessage());
-                    return reject("redis_error");
+                            error.getMessage()
+                    );
+
+                    boolean degradedAllowed =
+                            localBucket.tryConsumeWithLocalRefill();
+
+                    return Mono.just(
+                            degradedAllowed
+                                    ? new RateLimitDecision(
+                                    false,
+                                    "degraded_local",
+                                    "allowed"
+                            )
+                                    : new RateLimitDecision(
+                                    true,
+                                    "degraded_local",
+                                    "rejected"
+                            )
+                    );
                 });
     }
-
+    
     private Mono<RateLimitDecision> allow(String backend) {
         return Mono.just(new RateLimitDecision(false,backend,"allowed"));
     }
