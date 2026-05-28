@@ -1,6 +1,6 @@
 package com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.localRateLimiting;
 
-import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.RateLimitPolicy;
+import com.springboot.multi_tenant_rate_limiter.rateLimiter.tokenBucketImplementation.policy.repository.RateLimitPolicy;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;

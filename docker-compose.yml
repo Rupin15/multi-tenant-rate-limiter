@@ -1,14 +1,45 @@
 services:
+
   redis:
     image: redis:latest
     container_name: rate-limiter-redis
+
     ports:
       - "6379:6379"
+
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+    networks:
+      - rate-limiter
+
+  postgres-policy:
+    image: postgres:16
+    container_name: postgres-policy
+
+    environment:
+      POSTGRES_DB: rate_limiter
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Kolkata
+      PGTZ: Asia/Kolkata
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rate_limiter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
     networks:
       - rate-limiter
 
@@ -18,15 +49,12 @@ services:
       dockerfile: Dockerfile
       args:
         MODULE: payment-service
+
     container_name: rate-limiter-payment-service
+
     ports:
       - "8081:8081"
-      - "9092:9092"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/v1/payments/healthcheck || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+
     networks:
       - rate-limiter
 
@@ -36,79 +64,102 @@ services:
       dockerfile: Dockerfile
       args:
         MODULE: order-service
+
     container_name: rate-limiter-order-service
+
     ports:
       - "8082:8082"
-      - "9093:9093"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/v1/orders/healthcheck || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+
     networks:
       - rate-limiter
 
-#  api-gateway:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#      args:
-#        MODULE: api-gateway
-#    container_name: rate-limiter-api-gateway
-#    ports:
-#      - "8084:8080"
-#      - "9091:9091"
-#    environment:
-#      SPRING_DATA_REDIS_HOST: redis
-#      SPRING_DATA_REDIS_PORT: 6379
-#      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_0_URI: http://payment-service:8081
-#      SPRING_CLOUD_GATEWAY_SERVER_WEBMVC_ROUTES_1_URI: http://order-service:8082
-#    depends_on:
-#      redis:
-#        condition: service_healthy
-#      payment-service:
-#        condition: service_healthy
-#      order-service:
-#        condition: service_healthy
-#    healthcheck:
-#      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health || exit 1"]
-#      interval: 10s
-#      timeout: 5s
-#      retries: 12
-#    networks:
-#      - rate-limiter
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: api-gateway
+
+    environment:
+      SPRING_APPLICATION_NAME: api-gateway
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-policy:5432/rate_limiter
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_PAYMENT_URL: http://payment-service:8081
+      SPRING_ORDER_URL: http://order-service:8082
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Kolkata
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+      postgres-policy:
+        condition: service_healthy
+
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+    networks:
+      - rate-limiter
+
+  nginx:
+    image: nginx:latest
+    container_name: rate-limiter-nginx
+
+    ports:
+      - "8084:80"
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+    depends_on:
+      - api-gateway
+
+    networks:
+      - rate-limiter
 
   prometheus:
     image: prom/prometheus:latest
     container_name: rate-limiter-prometheus
+
     ports:
       - "9090:9090"
+
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-#    depends_on:
-#      api-gateway:
-#        condition: service_healthy
+
     networks:
       - rate-limiter
 
   grafana:
     image: grafana/grafana:latest
     container_name: rate-limiter-grafana
+
     ports:
       - "3000:3000"
+
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_DEFAULT_THEME: light
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/rate-limiter-dashboard.json
+
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
     depends_on:
       - prometheus
+
     networks:
       - rate-limiter
 
 networks:
   rate-limiter:
     name: rate-limiter
+
+volumes:
+  postgres_data:

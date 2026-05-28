@@ -19,6 +19,10 @@ public class RateLimiterMetrics {
         meterRegistry.counter("rate_limiter.redis.fallbacks").increment();
     }
 
+    public void recordRedisPubSubError() {
+        meterRegistry.counter("rate_limiter.redis.pubsub.errors").increment();
+    }
+
     public void recordRedisHealthCheck(String outcome) {
         meterRegistry.counter("redis.health_checks", "outcome", outcome).increment();
     }
