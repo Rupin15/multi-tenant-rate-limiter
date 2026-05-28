@@ -21,11 +21,13 @@
         <module>configuration-server</module>
         <module>payment-service</module>
         <module>order-service</module>
+        <module>benchmarks</module>
     </modules>
 
     <properties>
         <java.version>25</java.version>
         <spring-cloud.version>2025.1.0</spring-cloud.version>
+        <jmh.version>1.37</jmh.version>
     </properties>
 
     <dependencyManagement>
