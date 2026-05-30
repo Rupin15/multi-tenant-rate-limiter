@@ -3,11 +3,11 @@ spring:
     name: order-service
 
 server:
-  port: 8082
+  port: 8080
 
 management:
   server:
-    port: 9093
+    port: 9091
 
   endpoints:
     web:
