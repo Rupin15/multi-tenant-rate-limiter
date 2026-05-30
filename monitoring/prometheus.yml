@@ -1,23 +1,34 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 5s
 
 scrape_configs:
+
   - job_name: 'api-gateway'
     metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['api-gateway:9091']
+    dns_sd_configs:
+      - names:
+          - api-gateway
+        type: A
+        port: 9091
+
+  - job_name: 'payment-service'
+    metrics_path: '/actuator/prometheus'
+    dns_sd_configs:
+      - names:
+          - payment-service
+        type: A
+        port: 9091
+
+  - job_name: 'order-service'
+    metrics_path: '/actuator/prometheus'
+    dns_sd_configs:
+      - names:
+          - order-service
+        type: A
+        port: 9091
 
   - job_name: 'configuration-server'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['configuration-server:9094']
-
-  - job_name: 'payment-service'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['payment-service:9092']
-
-  - job_name: 'order-service'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['order-service:9093']
+      - targets:
+          - configuration-server:9094
