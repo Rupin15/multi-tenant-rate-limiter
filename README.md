@@ -1,82 +1,142 @@
 # Multi-Tenant Rate Limiter
 
-## Overview
+This repository contains a distributed, tier-aware rate limiting system built with Spring Boot. It combines a reactive API gateway, Redis-backed lease coordination, a configuration service backed by Postgres, and operational tooling for tracing, metrics, dashboards, and load testing.
 
-This repository is a multi-module Spring Boot backend system for distributed, tier-aware rate limiting.  
-The gateway combines local token buckets with Redis-backed Lua leases and receives its policy configuration from a dedicated configuration server.
+## What the system does
 
-## Modules
+- Applies route-specific and tenant-tier-specific rate limits at the gateway.
+- Uses a hybrid token bucket design:
+  local in-memory buckets for fast admission checks, then Redis Lua leasing for distributed coordination.
+- Stores policy definitions in Postgres and publishes policy changes through Redis pub/sub.
+- Keeps gateway instances consistent with both periodic pull sync and event-driven cache refresh.
+- Exposes metrics, traces, health endpoints, and benchmark tooling for operational visibility.
 
-- `api-gateway`
-  - Spring Cloud Gateway (WebFlux)
-  - Tier-aware rate limiting (`FREE`, `PRO`, `ENTERPRISE`)
-  - Pull + pub/sub policy sync from configuration server
-  - Chaos injection endpoint: `POST /admin/chaos`
-  - Prometheus metrics + OpenTelemetry traces + correlation ID propagation
+## Repository structure
 
-- `configuration-server`
-  - Source of truth for rate-limit policies
-  - Persists tiered route policies in Postgres
-  - Uses outbox + Redis pub/sub for policy update propagation
-  - Admin APIs:
-    - `GET /admin/policies`
-    - `POST /admin/policies`
-  - Internal policy feed:
-    - `GET /internal/config/rate-limit-policies`
+| Module | Role | Main stack |
+| --- | --- | --- |
+| `api-gateway` | Entry point, routing, rate limiting, fallbacks, chaos toggles | Spring Cloud Gateway, WebFlux, Redis, Resilience4j, Micrometer |
+| `configuration-server` | Source of truth for rate-limit policies | Spring MVC, JPA, Postgres, Redis pub/sub, outbox pattern |
+| `payment-service` | Downstream sample service | Spring MVC, Actuator, tracing |
+| `order-service` | Downstream sample service | Spring MVC, Actuator, tracing |
+| `postgres/init` | Schema and seed policy data | PostgreSQL SQL |
+| `monitoring` | Prometheus and Grafana setup | Prometheus, Grafana |
+| `nginx` | Front-door reverse proxy to the gateway | NGINX |
+| `benchmark` | Load generation and benchmark result capture | k6, shell, batch |
 
-- `payment-service`
-  - Downstream service (`GET /v1/payments/healthcheck`)
-  - Correlation ID + OpenTelemetry enabled
+## Architecture at a glance
 
-- `order-service`
-  - Downstream service (`GET /v1/orders/healthcheck`)
-  - Correlation ID + OpenTelemetry enabled
+1. A client calls NGINX on `:8084`.
+2. NGINX forwards the request to `api-gateway`.
+3. The gateway attaches or propagates `X-Correlation-Id`.
+4. The gateway resolves tenant tier from header, query parameter, or JSON body.
+5. The gateway resolves the matching route policy from its in-memory registry.
+6. A local token bucket is checked first for fast admission.
+7. If the local bucket is empty, the gateway requests a Redis lease through a Lua script.
+8. If Redis is unhealthy, the gateway falls back to degraded local refill mode.
+9. If the request is allowed, the gateway forwards to `payment-service` or `order-service`.
+10. If a downstream service is failing, the gateway circuit breaker routes to a fallback endpoint.
 
-## Infrastructure
+Policy updates flow separately:
 
-- `redis` for distributed leases + policy pub/sub
-- `postgres-policy` for policy and outbox persistence
-- `prometheus` for scraping metrics
-- `grafana` for dashboards
-- `jaeger` for distributed tracing
+1. An admin updates a policy through `configuration-server`.
+2. The policy is persisted in Postgres.
+3. A policy event is written to the outbox in the same transaction.
+4. After commit, the event is published to Redis pub/sub when possible.
+5. Gateway instances refresh their local caches from the event.
+6. If pub/sub misses an update, periodic sync from the configuration server reconciles the cache.
 
-## Architecture Flow
+## Backend concepts implemented
 
-1. Request enters `api-gateway`.
-2. Gateway resolves tenant tier from:
-   - `X-Tenant-Tier` header, else
-   - `tier` query param, else
-   - JSON body field `tier`, else defaults to `FREE`.
-3. Gateway resolves route+tier policy from local cache.
-4. Local token bucket check runs first.
-5. If local tokens are exhausted, Redis Lua lease is requested.
-6. Policies are synced from `configuration-server` and updated via Redis events.
+- API Gateway pattern
+- Reactive request processing with Spring WebFlux
+- Token bucket rate limiting
+- Hybrid local plus distributed coordination
+- Redis Lua scripting for atomic lease allocation
+- Policy cache with version-based refresh protection
+- Outbox pattern for durable event publication
+- Event-driven cache invalidation with Redis pub/sub
+- Scheduled reconciliation sync
+- Circuit breaker, retry, bulkhead, and time limiter with Resilience4j
+- Correlation ID propagation and OpenTelemetry tracing
+- Metrics and health endpoints with Micrometer and Actuator
+- Optimistic locking for concurrent policy updates
+- Chaos toggles for resilience testing
 
-## Run
+## Documentation
 
-From repo root:
+- [Architecture](docs/architecture.md)
+- [Failure Handling](docs/failure-handling.md)
+- [Backend Concepts](docs/backend-concepts.md)
+- [Runbook](docs/runbook.md)
+- [Benchmarking](docs/benchmarking.md)
 
-```bash
-docker-compose up
-```
+## Key endpoints
 
 Gateway routes:
 
-- `/api/payments/**` -> `payment-service`
-- `/api/orders/**` -> `order-service`
+- `GET http://localhost:8084/api/payments/healthcheck`
+- `GET http://localhost:8084/api/orders/healthcheck`
 
-## Key Config Files
+Gateway operational endpoints:
 
-- Gateway config: `api-gateway/src/main/resources/application.yml`
-- Config server config: `configuration-server/src/main/resources/application.yml`
-- DB schema/seed: `postgres/init/01-schema.sql`
-- Prometheus config: `monitoring/prometheus.yml`
-- Grafana dashboard: `monitoring/grafana/dashboards/rate-limiter-dashboard.json`
+- `GET http://localhost:8084/healthcheck`
+- `GET http://localhost:8084/fallback/payment`
+- `GET http://localhost:8084/fallback/order`
+- `GET http://localhost:8084/admin/chaos`
+- `POST http://localhost:8084/admin/chaos`
+- `GET http://localhost:9091/actuator/health` from inside the `api-gateway` container or when running the gateway locally
+- `GET http://localhost:9091/actuator/prometheus` from inside the `api-gateway` container or when running the gateway locally
 
-## Validation
+Configuration server endpoints:
 
-Run compile + tests:
+- `GET http://localhost:8085/internal/config/rate-limit-policies`
+- `GET http://localhost:8085/admin/policies`
+- `POST http://localhost:8085/admin/policies`
+- `GET http://localhost:9094/actuator/health`
+- `GET http://localhost:9094/actuator/prometheus`
+
+Operational UIs:
+
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Jaeger: `http://localhost:16686`
+
+## Quick start
+
+Run the full stack:
+
+```bash
+docker compose up --build
+```
+
+Then verify:
+
+```bash
+curl -i http://localhost:8084/api/payments/healthcheck
+curl -i http://localhost:8084/api/orders/healthcheck
+curl -s http://localhost:8085/admin/policies
+curl -s http://localhost:8084/healthcheck
+```
+
+Run tests from the repository root:
 
 ```bash
 mvn test
 ```
+
+## Security posture in the current code
+
+- Spring Security is present in all services.
+- All services currently permit all requests.
+- CSRF is disabled in the gateway and configuration server.
+- There is no authentication or authorization layer implemented for admin endpoints yet.
+
+## Notes for operators
+
+- Redis is used for distributed token lease allocation and policy pub/sub.
+- Postgres is the persistence layer for policies and the outbox.
+- Default policies are hard-coded in the gateway registry and also seeded in Postgres.
+- If Redis or config sync is unavailable, the system prefers continued availability with degraded behavior rather than hard failure.
+
+For setup details, operational procedures, testing, and troubleshooting, use the [Runbook](docs/runbook.md).
