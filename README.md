@@ -1,4 +1,4 @@
-# Multi-Tenant Rate Limiter
+# Distributed Tier-Aware Rate-limiting Gateway
 
 This repository contains a distributed, tier-aware rate limiting system built with Spring Boot. It combines a reactive API gateway, Redis-backed lease coordination, a configuration service backed by Postgres, and operational tooling for tracing, metrics, dashboards, and load testing.
 
